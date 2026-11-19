@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ブロッククラフト Classic</title>
+<style>
+:root{--ui:rgba(0,0,0,.55);--fg:#fff}
+@media (prefers-color-scheme:dark){:root{--ui:rgba(0,0,0,.65)}}
+html,body{margin:0;height:100%;overflow:hidden;background:#99ccff;color:var(--fg);font-family:system-ui,sans-serif;touch-action:none;-webkit-user-select:none;user-select:none}
+canvas{display:block;position:fixed;inset:0}
+.b{background:var(--ui);color:var(--fg);border:2px solid #fff8;border-radius:8px;font-size:20px;min-width:46px;height:46px;padding:0 10px;touch-action:none}
+#top{position:fixed;top:calc(env(safe-area-inset-top,0px) + 8px);right:calc(env(safe-area-inset-right,0px) + 8px);display:flex;gap:6px;z-index:5}
+#cross{position:fixed;left:50%;top:50%;width:20px;height:20px;margin:-10px;pointer-events:none;mix-blend-mode:difference}
+#cross:before,#cross:after{content:"";position:absolute;background:#fff}
+#cross:before{left:9px;top:2px;width:2px;height:16px}#cross:after{top:9px;left:2px;height:2px;width:16px}
+#hb{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 8px);display:flex;gap:3px;background:var(--ui);padding:4px;border-radius:6px;z-index:4}
+.sl{width:min(9vw,44px);aspect-ratio:1;border:3px solid #555;box-sizing:border-box;background:#0006;display:flex}
+.sl.on{border-color:#fff}.sl img,.ic img{width:100%;height:100%;image-rendering:pixelated}
+#nm{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom,0px) + 70px);text-align:center;text-shadow:1px 1px 2px #000;pointer-events:none;font-size:18px}
+#inv,#menu{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:10}
+#inv>div{background:#555d;padding:12px;border-radius:8px;max-width:92vw;max-height:86vh;overflow:auto}
+#grid{display:grid;grid-template-columns:repeat(auto-fill,52px);gap:4px;width:min(80vw,440px)}
+.ic{width:52px;height:52px;border:3px solid #333;box-sizing:border-box;background:#0007;display:flex}.ic:hover{border-color:#fff}
+#menu{display:flex;flex-direction:column;gap:10px;text-align:center;padding:20px;text-shadow:1px 1px 2px #000}
+#menu h1{margin:0;font-size:clamp(24px,6vw,44px);letter-spacing:2px}
+#menu p{margin:0;font-size:14px;line-height:1.6;max-width:480px}
+#menu .b{font-size:18px;height:52px;width:min(80vw,320px)}
+.tc{display:none}body.touch .tc{display:flex}
+#joy{position:fixed;width:110px;height:110px;margin:-55px;border:3px solid #fff7;border-radius:50%;display:none;pointer-events:none}
+#knob{position:absolute;left:35px;top:35px;width:40px;height:40px;border-radius:50%;background:#fff8}
+#acts{position:fixed;right:calc(env(safe-area-inset-right,0px) + 12px);bottom:calc(env(safe-area-inset-bottom,0px) + 70px);flex-direction:column;gap:10px;align-items:flex-end;z-index:4}
+#acts .b{width:70px;height:56px;font-size:16px}
+#fl{position:fixed;left:8px;top:calc(env(safe-area-inset-top,0px) + 8px);font-size:14px;text-shadow:1px 1px 2px #000}
+</style></head><body>
+<div id="cross"></div><div id="fl"></div>
+<div id="top"><button class="b" id="bInv">🎒</button><button class="b" id="bFly">✈</button><button class="b" id="bFs">⛶</button><button class="b" id="bMode">👆</button></div>
+<div id="nm"></div><div id="hb"></div>
+<div id="joy"><div id="knob"></div></div>
+<div id="acts" class="tc"><button class="b" id="bJ">▲ 跳ぶ</button><button class="b" id="bD">▼ 降りる</button><button class="b" id="bP">🧱 置く</button><button class="b" id="bB">⛏ 壊す</button></div>
+<div id="inv"><div><div style="margin-bottom:8px">ブロックを選ぶ（選択中のスロットに入ります）</div><div id="grid"></div><button class="b" id="bCl" style="margin-top:10px;width:100%">閉じる</button></div></div>
+<div id="menu">
+<h1>BLOCK CRAFT<br>CLASSIC</h1>
+<p id="mt">PC: WASD移動 / スペース ジャンプ(2回で飛行) / Shift 降下 / 左クリック 壊す / 右クリック 置く / ホイール・1-9 選択 / E ブロック一覧 / F 飛行 / Esc 一時停止</p>
+<button class="b" id="sPC">🖱 PC操作で開始</button>
+<button class="b" id="sTC">👆 タッチ操作で開始</button>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const $=i=>document.getElementById(i);
+const W=64,H=32,D=64,SEA=9,AIR=0,MUSH=6,WATER=5,BED=4;
+const world=new Uint8Array(W*H*D),IX=(x,y,z)=>x+W*(z+D*y);
+const get=(x,y,z)=>x<0||z<0||y<0||x>=W||z>=D||y>=H?0:world[IX(x,y,z)];
+const solid=b=>b>0&&b!==WATER&&b!==MUSH;
+const WC=[['赤','c43030'],['オレンジ','dc7a2c'],['黄','dcd22c'],['黄緑','86d82c'],['緑','2c9a30'],['青緑','2cd88a'],['シアン','2cd0d8'],['空','2c86d8'],['青','3434d8'],['紫','7e2cd8'],['赤紫','b02cd8'],['マゼンタ','d82cc8'],['ピンク','d82c80'],['濃灰','484848'],['灰','9a9a9a'],['白','e8e8e8']];
+const NM=['','草ブロック','丸石','オークの板材','岩盤','水','キノコ','土'];
+const bname=b=>b<8?NM[b]:WC[b-8][0]+'色の羊毛';
+const ALL=[1,7,2,3,4,5,6,...WC.map((_,i)=>8+i)];
+// ---- テクスチャ (16x16 x 24枚) ----
+const cvs=document.createElement('canvas');cvs.width=128;cvs.height=48;
+const g=cvs.getContext('2d');
+let sd=12345;const R=()=>(sd=sd*16807%2147483647)/2147483647;
+const put=(t,x,y,c,k=1,a=1)=>{g.fillStyle=`rgba(${c.map(v=>Math.min(255,v*k)|0)},${a})`;g.fillRect(t%8*16+x,(t>>3)*16+y,1,1)};
+const fill=(t,c,amp,f)=>{for(let y=0;y<16;y++)for(let x=0;x<16;x++)put(t,x,y,c,(f?f(x,y):1)*(1+(R()-.5)*amp))};
+const hx=s=>[0,2,4].map(i=>parseInt(s.substr(i,2),16));
+const GR=[100,165,55],DI=[134,96,67];
+fill(0,GR,.4);fill(2,DI,.4);fill(1,DI,.4);
+for(let x=0;x<16;x++){const d=3+(R()*2|0);for(let y=0;y<d;y++)put(1,x,y,GR,1+(R()-.5)*.4)}
+const cell={};fill(3,[125,125,125],.15,(x,y)=>{const o=((x+((y>>2)&1)*2)),k=(o>>2)+','+(y>>2);cell[k]??=.65+R()*.6;return cell[k]*((y&3)==3||(o&3)==3?.6:1)});
+fill(4,[178,142,86],.15,(x,y)=>((y&3)==3?.7:1)*((x+(y>>2)*5)%16==0?.75:1));
+fill(5,[90,90,90],1.2);
+for(let y=0;y<16;y++)for(let x=0;x<16;x++)put(6,x,y,[45,85,215],1+(R()-.5)*.25,.72);
+const rc=(c,x,y,w,h)=>{g.fillStyle=c;g.fillRect(112+x,y,w,h)};
+rc('#e8dcc0',7,9,3,6);rc('#c82828',5,4,6,1);rc('#c82828',4,5,8,1);rc('#c82828',3,6,10,3);rc('#fff',5,6,2,1);rc('#fff',9,5,1,1);rc('#fff',10,7,2,1);
+WC.forEach((w,i)=>fill(8+i,hx(w[1]),.12,(x,y)=>y&1?1:.96));
+const tex=new THREE.CanvasTexture(cvs);tex.magFilter=tex.minFilter=THREE.NearestFilter;tex.generateMipmaps=false;
+const TL=[0,0,3,4,5,6,7,2];
+const tileOf=(b,f)=>b==1?(f==3?0:f==2?2:1):b<8?TL[b]:b;
+const icons={};
+function icon(b){if(icons[b])return icons[b];const c=document.createElement('canvas');c.width=c.height=32;const x=c.getContext('2d');x.imageSmoothingEnabled=false;const t=tileOf(b,0);x.drawImage(cvs,t%8*16,(t>>3)*16,16,16,0,0,32,32);return icons[b]=c.toDataURL()}
+// ---- ワールド生成 ----
+for(let x=0;x<W;x++)for(let z=0;z<D;z++){
+ const h=Math.round(11+2.5*Math.sin(x*.13)+2.5*Math.cos(z*.11)+2*Math.sin((x+z)*.06+1));
+ for(let y=0;y<=h;y++)world[IX(x,y,z)]=y==0?BED:y<h?7:(h<=SEA?7:1);
+ for(let y=h+1;y<=SEA;y++)world[IX(x,y,z)]=WATER;
+ if(h>SEA&&R()<.012)world[IX(x,h+1,z)]=MUSH;
+}
+// ---- メッシュ ----
+const FD=[
+[[-1,0,0],[[0,1,0,0,1],[0,0,0,0,0],[0,1,1,1,1],[0,0,1,1,0]]],
+[[1,0,0],[[1,1,1,0,1],[1,0,1,0,0],[1,1,0,1,1],[1,0,0,1,0]]],
+[[0,-1,0],[[1,0,1,1,0],[0,0,1,0,0],[1,0,0,1,1],[0,0,0,0,1]]],
+[[0,1,0],[[0,1,1,0,0],[1,1,1,1,0],[0,1,0,0,1],[1,1,0,1,1]]],
+[[0,0,-1],[[1,1,0,0,1],[1,0,0,0,0],[0,1,0,1,1],[0,0,0,1,0]]],
+[[0,0,1],[[0,1,1,0,1],[0,0,1,0,0],[1,1,1,1,1],[1,0,1,1,0]]]];
+const SH=[.8,.8,.5,1,.6,.6];
+const scene=new THREE.Scene();scene.background=new THREE.Color(0x99ccff);scene.fog=new THREE.Fog(0x99ccff,25,70);
+const mS=new THREE.MeshBasicMaterial({map:tex,vertexColors:true,alphaTest:.5});
+const mW=new THREE.MeshBasicMaterial({map:tex,vertexColors:true,transparent:true,depthWrite:false});
+const chunks={},dirty=new Set();
+const uvf=(t,u,v)=>[(t%8+.002+u*.996)/8,1-((t>>3)+1-v*.996-.002)/3];
+function mkMesh(a,mat){if(!a.i.length)return null;const ge=new THREE.BufferGeometry();
+ ge.setAttribute('position',new THREE.Float32BufferAttribute(a.p,3));ge.setAttribute('uv',new THREE.Float32BufferAttribute(a.u,2));ge.setAttribute('color',new THREE.Float32BufferAttribute(a.c,3));ge.setIndex(a.i);
+ const m=new THREE.Mesh(ge,mat);scene.add(m);return m}
+function build(cx,cz){
+ const k=cx+','+cz,old=chunks[k];if(old)old.forEach(m=>{if(m){scene.remove(m);m.geometry.dispose()}});
+ const S={p:[],u:[],c:[],i:[]},Wt={p:[],u:[],c:[],i:[]};
+ for(let y=0;y<H;y++)for(let z=cz*16;z<cz*16+16;z++)for(let x=cx*16;x<cx*16+16;x++){
+  const b=get(x,y,z);if(!b)continue;
+  if(b==MUSH){const n=S.p.length/3,t=tileOf(b,0);
+   [[[0,0,0],[1,0,1],[0,1,0],[1,1,1]],[[1,0,0],[0,0,1],[1,1,0],[0,1,1]]].forEach((q,j)=>{const n=S.p.length/3;
+    q.forEach((v,m)=>{S.p.push(x+v[0],y+v[1],z+v[2]);S.u.push(...uvf(t,m&1,m>>1));S.c.push(.9,.9,.9)});
+    S.i.push(n,n+1,n+2,n+2,n+1,n+3,n,n+2,n+1,n+1,n+2,n+3)});continue}
+  const w=b==WATER,A=w?Wt:S;
+  FD.forEach(([d,cs],f)=>{const nb=get(x+d[0],y+d[1],z+d[2]);
+   if(w?!(nb==0||nb==MUSH):solid(nb))return;
+   const n=A.p.length/3,t=tileOf(b,f),s=SH[f];
+   cs.forEach(c=>{A.p.push(x+c[0],y+c[1],z+c[2]);A.u.push(...uvf(t,c[3],c[4]));A.c.push(s,s,s)});
+   A.i.push(n,n+1,n+2,n+2,n+1,n+3)});
+ }
+ chunks[k]=[mkMesh(S,mS),mkMesh(Wt,mW)];
+}
+function setB(x,y,z,b){world[IX(x,y,z)]=b;const cx=x>>4,cz=z>>4;dirty.add(cx+','+cz);
+ if(x%16==0&&cx>0)dirty.add((cx-1)+','+cz);if(x%16==15&&cx<W/16-1)dirty.add((cx+1)+','+cz);
+ if(z%16==0&&cz>0)dirty.add(cx+','+(cz-1));if(z%16==15&&cz<D/16-1)dirty.add(cx+','+(cz+1))}
+for(let cx=0;cx<W/16;cx++)for(let cz=0;cz<D/16;cz++)build(cx,cz);
+// ---- レンダラ ----
+const rd=new THREE.WebGLRenderer({antialias:false});rd.setPixelRatio(Math.min(devicePixelRatio,2));document.body.prepend(rd.domElement);
+const cam=new THREE.PerspectiveCamera(75,1,.05,200);cam.rotation.order='YXZ';
+function rs(){rd.setSize(innerWidth,innerHeight);cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix()}addEventListener('resize',rs);rs();
+const hl=new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1.01,1.01,1.01)),new THREE.LineBasicMaterial({color:0}));scene.add(hl);
+// ---- プレイヤー ----
+const p={x:32.5,y:20,z:32.5},v={x:0,y:0,z:0};let yaw=0,pitch=0,fly=false,onG=false;
+function spawn(){p.x=p.z=32.5;for(let y=H-1;y>0;y--){const b=get(32,y,32);if(b&&b!=MUSH){p.y=y+1;break}}v.x=v.y=v.z=0}spawn();
+const sAt=(x,y,z)=>(x<0||z<0||x>=W||z>=D||y<0)?true:y>=H?false:solid(world[IX(x,y,z)]);
+function hit(px,py,pz){const r=.3,e=1e-6;for(let x=Math.floor(px-r);x<=Math.floor(px+r-e);x++)for(let y=Math.floor(py);y<=Math.floor(py+1.8-e);y++)for(let z=Math.floor(pz-r);z<=Math.floor(pz+r-e);z++)if(sAt(x,y,z))return true;return false}
+const keys={};let jump=0,down=0,joy={x:0,y:0};
+function update(dt){
+ const fw=get(Math.floor(p.x),Math.floor(p.y+.4),Math.floor(p.z))==WATER;
+ let f=(keys.KeyW||keys.ArrowUp?1:0)-(keys.KeyS||keys.ArrowDown?1:0)-joy.y,r=(keys.KeyD||keys.ArrowRight?1:0)-(keys.KeyA||keys.ArrowLeft?1:0)+joy.x;
+ const l=Math.hypot(f,r);if(l>1){f/=l;r/=l}
+ const sp=fly?10:fw?2.6:4.3;
+ v.x=(-Math.sin(yaw)*f+Math.cos(yaw)*r)*sp;v.z=(-Math.cos(yaw)*f-Math.sin(yaw)*r)*sp;
+ const up=keys.Space||jump,dn=keys.ShiftLeft||keys.ShiftRight||down;
+ if(fly)v.y=(up?8:0)-(dn?8:0);
+ else if(fw)v.y=up?3.5:Math.max(v.y-10*dt,-3);
+ else{v.y=Math.max(v.y-28*dt,-40);if(up&&onG)v.y=8.6}
+ onG=false;
+ for(const a of['x','y','z']){p[a]+=v[a]*dt;if(hit(p.x,p.y,p.z)){p[a]-=v[a]*dt;if(a=='y'&&v.y<0)onG=true;v[a]=0}}
+ if(p.y<-10)spawn();
+}
+// ---- 操作 ----
+function ray(){const o=cam.position,d=cam.getWorldDirection(new THREE.Vector3());
+ let x=Math.floor(o.x),y=Math.floor(o.y),z=Math.floor(o.z),px=x,py=y,pz=z;
+ const sx=Math.sign(d.x),sy=Math.sign(d.y),sz=Math.sign(d.z),dx=d.x?Math.abs(1/d.x):Infinity,dy=d.y?Math.abs(1/d.y):Infinity,dz=d.z?Math.abs(1/d.z):Infinity;
+ let tx=d.x?(d.x>0?x+1-o.x:o.x-x)*dx:Infinity,ty=d.y?(d.y>0?y+1-o.y:o.y-y)*dy:Infinity,tz=d.z?(d.z>0?z+1-o.z:o.z-z)*dz:Infinity,t=0;
+ while(t<=5.5){const b=get(x,y,z);if(b&&b!=WATER)return{x,y,z,px,py,pz};
+  px=x;py=y;pz=z;
+  if(tx<ty&&tx<tz){t=tx;tx+=dx;x+=sx}else if(ty<tz){t=ty;ty+=dy;y+=sy}else{t=tz;tz+=dz;z+=sz}}
+ return null}
+function brk(){const t=ray();if(t&&get(t.x,t.y,t.z)!=BED)setB(t.x,t.y,t.z,0)}
+function plc(){const t=ray();if(!t)return;const{px:x,py:y,pz:z}=t,b=slots[sel];
+ if(x<0||y<0||z<0||x>=W||y>=H||z>=D)return;const o=get(x,y,z);if(o&&o!=WATER&&o!=MUSH)return;
+ if(solid(b)){const r=.3;if(p.x+r>x&&p.x-r<x+1&&p.z+r>z&&p.z-r<z+1&&p.y+1.8>y&&p.y<y+1)return}
+ setB(x,y,z,b)}
+const slots=[1,7,2,3,4,5,6,15,8];let sel=0,nmT;
+function drawHB(){$('hb').innerHTML=slots.map((b,i)=>`<div class="sl${i==sel?' on':''}" data-i="${i}"><img src="${icon(b)}"></div>`).join('');
+ const n=$('nm');n.textContent=bname(slots[sel]);clearTimeout(nmT);nmT=setTimeout(()=>n.textContent='',1500)}
+$('hb').addEventListener('click',e=>{const s=e.target.closest('.sl');if(s){sel=+s.dataset.i;drawHB()}});
+$('grid').innerHTML=ALL.map(b=>`<div class="ic" data-b="${b}" title="${bname(b)}"><img src="${icon(b)}"></div>`).join('');
+$('grid').addEventListener('click',e=>{const s=e.target.closest('.ic');if(s){slots[sel]=+s.dataset.b;drawHB();inv(false)}});
+drawHB();
+let touch=false,started=false,invOpen=false;
+function inv(o){invOpen=o;$('inv').style.display=o?'flex':'none';if(o){document.exitPointerLock?.()}else if(!touch&&started)rd.domElement.requestPointerLock?.()}
+$('bInv').onclick=()=>inv(!invOpen);$('bCl').onclick=()=>inv(false);
+function setFly(f){fly=f;v.y=0;$('fl').textContent=fly?'✈ 飛行モード':''}
+$('bFly').onclick=()=>setFly(!fly);
+$('bFs').onclick=()=>{const d=document,e=d.documentElement;if(d.fullscreenElement||d.webkitFullscreenElement)(d.exitFullscreen||d.webkitExitFullscreen).call(d);else(e.requestFullscreen||e.webkitRequestFullscreen)?.call(e)};
+function setMode(t){touch=t;document.body.classList.toggle('touch',t);$('bMode').textContent=t?'🖱':'👆';$('cross').style.display='block';if(t)document.exitPointerLock?.()}
+$('bMode').onclick=()=>{setMode(!touch);if(!touch)rd.domElement.requestPointerLock?.()};
+function start(t){started=true;setMode(t);$('menu').style.display='none';if(!t)rd.domElement.requestPointerLock?.()}
+$('sPC').onclick=()=>start(false);$('sTC').onclick=()=>start(true);
+if('ontouchstart' in window)$('sTC').style.outline='3px solid #ff0';else $('sPC').style.outline='3px solid #ff0';
+document.addEventListener('pointerlockchange',()=>{if(!document.pointerLockElement&&!touch&&!invOpen&&started)$('menu').style.display='flex'});
+document.addEventListener('mousemove',e=>{if(document.pointerLockElement){yaw-=e.movementX*.0025;pitch=Math.max(-1.55,Math.min(1.55,pitch-e.movementY*.0025))}});
+document.addEventListener('mousedown',e=>{if(document.pointerLockElement){if(e.button==0)brk();else if(e.button==2)plc()}});
+document.addEventListener('contextmenu',e=>e.preventDefault());
+document.addEventListener('wheel',e=>{if(!invOpen){sel=(sel+(e.deltaY>0?1:8))%9;drawHB()}});
+let lastSp=0;
+document.addEventListener('keydown',e=>{if(e.repeat)return;keys[e.code]=true;
+ if(e.code=='Space'){e.preventDefault();const n=performance.now();if(n-lastSp<300)setFly(!fly);lastSp=n}
+ if(/^Digit[1-9]$/.test(e.code)){sel=+e.code[5]-1;drawHB()}
+ if(e.code=='KeyE')inv(!invOpen);if(e.code=='KeyF')setFly(!fly)});
+document.addEventListener('keyup',e=>keys[e.code]=false);
+// タッチ
+const hold=(id,on,off)=>{const e=$(id);e.addEventListener('pointerdown',ev=>{ev.preventDefault();on()});['pointerup','pointercancel','pointerleave'].forEach(n=>e.addEventListener(n,()=>off&&off()))};
+hold('bB',brk);hold('bP',plc);hold('bJ',()=>jump=1,()=>jump=0);hold('bD',()=>down=1,()=>down=0);
+let jId=null,lId=null,jo={x:0,y:0},lp={x:0,y:0};const jy=$('joy'),kn=$('knob');
+const cv=rd.domElement;
+cv.addEventListener('touchstart',e=>{e.preventDefault();if(!touch)return;for(const t of e.changedTouches){
+ if(t.clientX<innerWidth*.4&&jId==null){jId=t.identifier;jo={x:t.clientX,y:t.clientY};jy.style.cssText+=`display:block;left:${jo.x}px;top:${jo.y}px`}
+ else if(lId==null){lId=t.identifier;lp={x:t.clientX,y:t.clientY}}}},{passive:false});
+cv.addEventListener('touchmove',e=>{e.preventDefault();for(const t of e.changedTouches){
+ if(t.identifier==jId){let dx=(t.clientX-jo.x)/50,dy=(t.clientY-jo.y)/50;const l=Math.hypot(dx,dy);if(l>1){dx/=l;dy/=l}joy={x:dx,y:dy};kn.style.transform=`translate(${dx*35}px,${dy*35}px)`}
+ else if(t.identifier==lId){yaw-=(t.clientX-lp.x)*.005;pitch=Math.max(-1.55,Math.min(1.55,pitch-(t.clientY-lp.y)*.005));lp={x:t.clientX,y:t.clientY}}}},{passive:false});
+const te=e=>{for(const t of e.changedTouches){if(t.identifier==jId){jId=null;joy={x:0,y:0};jy.style.display='none';kn.style.transform=''}if(t.identifier==lId)lId=null}};
+cv.addEventListener('touchend',te);cv.addEventListener('touchcancel',te);
+// ---- ループ ----
+let last=performance.now();
+function loop(now){requestAnimationFrame(loop);const dt=Math.min(.05,(now-last)/1000);last=now;
+ if(started&&!invOpen&&$('menu').style.display=='none')update(dt);
+ let n=0;for(const k of dirty){const[a,b]=k.split(',');build(+a,+b);dirty.delete(k);if(++n>=4)break}
+ cam.position.set(p.x,p.y+1.62,p.z);cam.rotation.set(pitch,yaw,0);
+ const uw=get(Math.floor(cam.position.x),Math.floor(cam.position.y),Math.floor(cam.position.z))==WATER;
+ scene.fog.color.set(uw?0x2a5ad0:0x99ccff);scene.fog.near=uw?.1:25;scene.fog.far=uw?14:70;scene.background.set(uw?0x2a5ad0:0x99ccff);
+ const t=ray();hl.visible=!!t;if(t)hl.position.set(t.x+.5,t.y+.5,t.z+.5);
+ rd.render(scene,cam)}
+requestAnimationFrame(loop);
+</script></body></html>
